@@ -85,3 +85,97 @@ class MentionsTests(MessageTestCase):
             'test@example.com',
             {},
         )
+
+    def test_matches_before_normal_text(self):
+        self.assertMessageEqual(
+            '@foo Good to see you',
+            {'mentions': ['foo']},
+        )
+
+    def test_matches_after_normal_text(self):
+        self.assertMessageEqual(
+            'And you as well! @bar',
+            {'mentions': ['bar']},
+        )
+
+    def test_matches_in_the_middle_of_text(self):
+        self.assertMessageEqual(
+            'Thanks! @foo I hope you are well!',
+            {'mentions': ['foo']},
+        )
+
+    def test_matches_when_on_both_sides_of_text(self):
+        self.assertMessageEqual(
+            '@bob can you talk to @steve about stuff?',
+            {'mentions': ['bob', 'steve']},
+        )
+
+
+class EmoticonsTests(MessageTestCase):
+
+    def test_simple_emoticon(self):
+        self.assertMessageEqual(
+            '(success)',
+            {'emoticons': ['success']},
+        )
+
+    def test_empty_parens_do_not_match(self):
+        self.assertMessageEqual(
+            '()',
+            {},
+        )
+
+    def test_1_to_15_characters_match(self):
+        for count in xrange(1, 16):
+            match = 'a' * count
+            self.assertMessageEqual(
+                '({0})'.format(match),
+                {'emoticons': [match]},
+            )
+        self.assertMessageEqual(
+            '()',
+            {},
+        )
+
+    def test_16_characters_does_not_match(self):
+        self.assertMessageEqual(
+            '({0})'.format('a' * 16),
+            {},
+        )
+
+    def test_parens_with_non_alphanumeric_chars_do_not_match(self):
+        self.assertMessageEqual(
+            '(foo_bar) (foo bar)',
+            {},
+        )
+
+    def test_multiple_emoticons_match(self):
+        self.assertMessageEqual(
+            '(foo)(bar) (baz)',
+            {'emoticons': ['foo', 'bar', 'baz']},
+        )
+
+    def test_matches_before_normal_text(self):
+        self.assertMessageEqual(
+            '(foo)Good to see you',
+            {'emoticons': ['foo']},
+        )
+
+    def test_matches_after_normal_text(self):
+        self.assertMessageEqual(
+            'And you as well! (bar)',
+            {'emoticons': ['bar']},
+        )
+
+    def test_matches_in_the_middle_of_text(self):
+        self.assertMessageEqual(
+            'Thanks! (happy) I hope you are well!',
+            {'emoticons': ['happy']},
+        )
+
+    def test_matches_when_on_both_sides_of_text(self):
+        self.assertMessageEqual(
+            '(beaming) You are so kind! (hugs)',
+            {'emoticons': ['beaming', 'hugs']},
+        )
+
