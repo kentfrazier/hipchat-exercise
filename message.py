@@ -68,7 +68,7 @@ def _build_url_and_email_patterns():
     # as defined by the DNS spec at http://tools.ietf.org/html/rfc1035
     dns_label = r'''
     (?<![A-Za-z0-9-])
-    [A-Za-z][A-Za-z0-9-]{,61}[A-Za-z0-9]
+    [A-Za-z](?:[A-Za-z0-9-]{,61}[A-Za-z0-9])?
     (?![A-Za-z0-9-])
     '''
     # while a top-level domain alone would be a valid URL, we choose to ignore

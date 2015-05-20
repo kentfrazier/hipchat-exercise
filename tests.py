@@ -252,6 +252,8 @@ class URLExtractionTests(MessageTestCase):
         'new-top-level.domain',
         'internationalized-punycode-domain.xn--11b5bs3a9aj6g',
         'www.' + 'a' * 63 + '.com',
+        'a.com',
+        'trailing-number1.com',
     )
     BAD_HOSTS = (
         '::', # IPv6 without brackets
@@ -275,6 +277,23 @@ class URLExtractionTests(MessageTestCase):
         'http',
         'https',
     )
+    GOOD_USER_INFO = (
+        'foo',
+        'foo:',
+        'foo:bar',
+        'foo:b:ar',
+        'foo:b%20ar',
+        'foo:%af%AF',
+        '%af%AFfoo:bar',
+    )
+    GOOD_PATHS = (
+        '',
+        'moo/goo/gai/pan',
+        'with/%20percent/encoded%ba/stuff',
+        'with/trailing/slash/',
+        'with/(some+parentheses)/yo',
+        'with/(ending+parenthesis)',
+    )
 
     def test_bare_host_patterns(self):
         for host in self.GOOD_HOSTS:
@@ -289,5 +308,43 @@ class URLExtractionTests(MessageTestCase):
             self.assertMessageEqual(
                 host,
                 {},
+                retrieve_url_titles=False,
+            )
+
+    def test_host_with_scheme(self):
+        for host in self.GOOD_HOSTS:
+            for scheme in self.GOOD_SCHEMES:
+                url = '{0}://{1}'.format(scheme, host)
+                self.assertMessageEqual(
+                    url,
+                    {'links': [{'url': url}]},
+                    retrieve_url_titles=False,
+                )
+
+    def test_no_match_bad_host_with_scheme(self):
+        for host in self.BAD_HOSTS:
+            for scheme in self.GOOD_SCHEMES:
+                url = '{0}://{1}'.format(scheme, host)
+                self.assertMessageEqual(
+                    url,
+                    {},
+                    retrieve_url_titles=False,
+                )
+
+    def test_with_user_info_present(self):
+        for user_info in self.GOOD_USER_INFO:
+            url = 'http://{0}@example.com'.format(user_info)
+            self.assertMessageEqual(
+                url,
+                {'links': [{'url': url}]},
+                retrieve_url_titles=False,
+            )
+
+    def test_with_path_present(self):
+        for path in self.GOOD_PATHS:
+            url = 'http://example.com/{0}'.format(path)
+            self.assertMessageEqual(
+                url,
+                {'links': [{'url': url}]},
                 retrieve_url_titles=False,
             )
