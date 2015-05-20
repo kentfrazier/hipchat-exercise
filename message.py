@@ -1,8 +1,7 @@
 import re
-from urlparse import urlsplit
 
 
-def _build_url_pattern():
+def _build_url_and_email_patterns():
     """
     Encapsulate the ugly details of building the URL regex.
 
@@ -42,7 +41,6 @@ def _build_url_pattern():
         ipv4=ipv4,
     )
     ipv6 = r'''
-    \[
     (?:
      (?:{piece}:){{6}}{ls32}
      |
@@ -62,7 +60,6 @@ def _build_url_pattern():
      |
      (?:(?:{piece}:){{,6}}{piece})?::
     )
-    \]
     '''.format(
         piece=ipv6_piece,
         ls32=ipv6_last_32_bits,
@@ -76,7 +73,7 @@ def _build_url_pattern():
 
     # at this time, we are supporting IPv4 and IPv6, but not IPvFuture
     # as defined in rfc3986
-    host = r'(?:{ipv4}|{ipv6}|{registered_domain})'.format(
+    host = r'(?:{ipv4}|\[{ipv6}\]|{registered_domain})'.format(
         ipv4=ipv4,
         ipv6=ipv6,
         registered_domain=registered_domain,
@@ -115,7 +112,30 @@ def _build_url_pattern():
         fragment=fragment,
     )
 
-    return re.compile(url_pattern, re.VERBOSE)
+    url_regex = re.compile(url_pattern, re.VERBOSE)
+
+    # -- EMAIL PATTERN --
+
+    # ignores many complicated aspects of RFC5322, such as comments in local
+    # parts, quoted-string form, and addresses containing Unicode above \u007f
+    # Given the context, is should be acceptable to have the occasional false
+    # negative from the resulting regex
+    email_local_part = r'{char}+(?:\.{char}+)*'.format(
+        char=r'''(?:[A-Za-z0-9#\-_~!\$&'\(\)\*\+,;=:]|%[A-Fa-f0-9]{2})'''
+    )
+    email_host = r'(?:\[(?:{ipv4}|{ipv6})\]|{registered_domain})'.format(
+        ipv4=ipv4,
+        ipv6=ipv6,
+        registered_domain=registered_domain,
+    )
+    email_pattern = r'{local}@{host}'.format(
+        local=email_local_part,
+        host=email_host,
+    )
+
+    email_regex = re.compile(email_pattern, re.VERBOSE)
+
+    return url_regex, email_regex
 
 
 # Mentions are assumed to be an at symbol (@) followed by any number of
@@ -150,12 +170,14 @@ EMOTICON_REGEX = re.compile(r'\(([A-Za-z0-9]{1,15})\)')
 # smart about things like trailing punctuation, while assuming that
 # whitespace and some types of characters, while actually valid in URLs, are
 # encoded if present.
-URL_REGEX = _build_url_pattern()
+URL_REGEX, EMAIL_REGEX = _build_url_and_email_patterns()
 
 
 def extract_urls(message_text):
 
     def clean(url):
+        if EMAIL_REGEX.match(url):
+            return None
         return url
 
     unfiltered = URL_REGEX.findall(message_text)
