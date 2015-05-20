@@ -1,4 +1,121 @@
 import re
+from urlparse import urlsplit
+
+
+def _build_url_pattern():
+    """
+    Encapsulate the ugly details of building the URL regex.
+
+    The patterns here come from the URI specification, located at:
+        https://tools.ietf.org/html/rfc3986
+    """
+    # encoding lists from https://url.spec.whatwg.org/#percent-encoded-bytes
+    simple_whitelist = {chr(code) for code in xrange(0x20, 0x7f)}
+    default_whitelist = simple_whitelist - {' ', '"', '#', '<', '>', '?', '`'}
+    password_whitelist = default_whitelist - {'/', '@', '\\'}
+    username_whitelist = password_whitelist - {':'}
+    query_whitelist = default_whitelist | {'?'}
+    fragment_whitelist = query_whitelist | {'#'}
+
+    char_class_template = r'(?:[{0}]|%[A-Fa-f0-9]{{2}})'
+
+    url_chars = {
+        key: char_class_template.format(re.escape(''.join(sorted(whitelist))))
+        for key, whitelist in (
+            ('default', default_whitelist),
+            ('password', password_whitelist),
+            ('username', username_whitelist),
+            ('query', query_whitelist),
+            ('fragment', fragment_whitelist),
+        )
+    }
+
+    scheme = r'https?'
+
+    user_information = r'{username}*(?::{password}*)?'.format(**url_chars)
+
+    ipv4_octet = r'(?:1\d\d|2[0-4]\d|25[0-5]|[1-9]\d|\d)'
+    ipv4 = r'(?:{octet}(?:\.{octet}){{3}})'.format(octet=ipv4_octet)
+    ipv6_piece = r'[A-Fa-f0-9]{1,4}'
+    ipv6_last_32_bits = r'(?:{piece}:{piece}|{ipv4})'.format(
+        piece=ipv6_piece,
+        ipv4=ipv4,
+    )
+    ipv6 = r'''
+    \[
+    (?:
+     (?:{piece}:){{6}}{ls32}
+     |
+     ::(?:{piece}:){{5}}{ls32}
+     |
+     (?:{piece})?::(?:{piece}:){{4}}{ls32}
+     |
+     (?:(?:{piece}:)?{piece})?::(?:{piece}:){{3}}{ls32}
+     |
+     (?:(?:{piece}:){{,2}}{piece})?::(?:{piece}:){{2}}{ls32}
+     |
+     (?:(?:{piece}:){{,3}}{piece})?::{piece}:{ls32}
+     |
+     (?:(?:{piece}:){{,4}}{piece})?::{ls32}
+     |
+     (?:(?:{piece}:){{,5}}{piece})?::{piece}
+     |
+     (?:(?:{piece}:){{,6}}{piece})?::
+    )
+    \]
+    '''.format(
+        piece=ipv6_piece,
+        ls32=ipv6_last_32_bits,
+    )
+
+    # as defined by the DNS spec at http://tools.ietf.org/html/rfc1035
+    dns_label = '[A-Za-z][A-Za-z0-9-]{,61}[A-Za-z0-9]'
+    # while a top-level domain alone would be a valid URL, we choose to ignore
+    # as a rare case that would generate a lot of false positives.
+    registered_domain = r'{label}(?:\.{label})+'.format(label=dns_label)
+
+    # at this time, we are supporting IPv4 and IPv6, but not IPvFuture
+    # as defined in rfc3986
+    host = r'(?:{ipv4}|{ipv6}|{registered_domain})'.format(
+        ipv4=ipv4,
+        ipv6=ipv6,
+        registered_domain=registered_domain,
+    )
+
+    port = r'\d*'
+
+    authority = r'(?:{user_information}@)?{host}(?::{port})?'.format(
+        user_information=user_information,
+        host=host,
+        port=port,
+    )
+
+    path = r'{default}*'.format(**url_chars)
+    query = r'{query}*'.format(**url_chars)
+    fragment = r'{fragment}*'.format(**url_chars)
+
+
+    url_pattern = r'''
+    \b
+    (?:{scheme}://)?
+
+    {authority}
+
+    (?:/{path})?
+
+    (?:\?{query})?
+
+    (?:\#{fragment})?
+    \b
+    '''.format(
+        scheme=scheme,
+        authority=authority,
+        path=path,
+        query=query,
+        fragment=fragment,
+    )
+
+    return re.compile(url_pattern, re.VERBOSE)
 
 
 # Mentions are assumed to be an at symbol (@) followed by any number of
@@ -15,14 +132,59 @@ MENTION_REGEX = re.compile(r'(?:^|\s)@(\w+)')
 # match.
 EMOTICON_REGEX = re.compile(r'\(([A-Za-z0-9]{1,15})\)')
 
+# This pattern will only match well-formed HTTP and HTTPS URLs. Since
+# the exercise is defined to need to retrieve the title from the URL, it
+# doesn't make much sense to match schemes that are unlikely to point at
+# an HTML document. Extracting URLs from text is a pretty tricky thing to do
+# correctly since the spec is very permissive and allows things like
+# whitespace and parentheses, and people may do things like leaving off the
+# schema or following the URL with punctuation that could or could not
+# legally be a part of the URL. A robust system would need to handle the
+# huge number of new top-level domains, as well as internationalized
+# domain names which might be in Unicode or in Punycode ASCII transcriptions.
+#
+# In a real system, I would try to find a library which has already
+# adequately solved the problem and use it, but for the conceit of the
+# interview, I will provide a solution that works for most simpler cases and
+# doesn't concern itself with internationalized domains. I will try to be
+# smart about things like trailing punctuation, while assuming that
+# whitespace and some types of characters, while actually valid in URLs, are
+# encoded if present.
+URL_REGEX = _build_url_pattern()
 
-def parse(message_text):
+
+def extract_urls(message_text):
+
+    def clean(url):
+        return url
+
+    unfiltered = URL_REGEX.findall(message_text)
+    return filter(None, map(clean, unfiltered))
+
+
+def parse(message_text, retrieve_url_titles=True):
+
+    def get_title(url):
+        return (url, '')
+
+    def with_titles(urls):
+        return [
+            {'url': url, 'title': title}
+            for url, title in filter(None, map(get_title, urls))
+        ]
+
     mentions = MENTION_REGEX.findall(message_text)
     emoticons = EMOTICON_REGEX.findall(message_text)
+    urls = extract_urls(message_text)
+    if retrieve_url_titles:
+        links = with_titles(urls)
+    else:
+        links = [{'url': url} for url in urls]
     parsed = {
         key: value
         for key, value in (('mentions', mentions),
-                           ('emoticons', emoticons))
+                           ('emoticons', emoticons),
+                           ('links', links))
         if value
     }
     return parsed
