@@ -33,7 +33,7 @@ def _build_url_and_email_patterns():
 
     user_information = r'{username}*(?::{password}*)?'.format(**url_chars)
 
-    ipv4_octet = r'(?:1\d\d|2[0-4]\d|25[0-5]|[1-9]\d|\d)'
+    ipv4_octet = r'(?:\b(?:1\d\d|2[0-4]\d|25[0-5]|[1-9]\d|\d)\b)'
     ipv4 = r'(?:{octet}(?:\.{octet}){{3}})'.format(octet=ipv4_octet)
     ipv6_piece = r'[A-Fa-f0-9]{1,4}'
     ipv6_last_32_bits = r'(?:{piece}:{piece}|{ipv4})'.format(
@@ -66,7 +66,11 @@ def _build_url_and_email_patterns():
     )
 
     # as defined by the DNS spec at http://tools.ietf.org/html/rfc1035
-    dns_label = '[A-Za-z][A-Za-z0-9-]{,61}[A-Za-z0-9]'
+    dns_label = r'''
+    (?<![A-Za-z0-9-])
+    [A-Za-z][A-Za-z0-9-]{,61}[A-Za-z0-9]
+    (?![A-Za-z0-9-])
+    '''
     # while a top-level domain alone would be a valid URL, we choose to ignore
     # as a rare case that would generate a lot of false positives.
     registered_domain = r'{label}(?:\.{label})+'.format(label=dns_label)
@@ -81,7 +85,7 @@ def _build_url_and_email_patterns():
 
     port = r'\d*'
 
-    authority = r'(?:{user_information}@)?{host}(?::{port})?'.format(
+    authority = r'(?:{user_information}@)?{host}(?:\:{port})?'.format(
         user_information=user_information,
         host=host,
         port=port,
@@ -93,17 +97,11 @@ def _build_url_and_email_patterns():
 
 
     url_pattern = r'''
-    \b
     (?:{scheme}://)?
-
-    {authority}
-
+    (?:{authority})
     (?:/{path})?
-
     (?:\?{query})?
-
     (?:\#{fragment})?
-    \b
     '''.format(
         scheme=scheme,
         authority=authority,
@@ -128,7 +126,7 @@ def _build_url_and_email_patterns():
         ipv6=ipv6,
         registered_domain=registered_domain,
     )
-    email_pattern = r'{local}@{host}'.format(
+    email_pattern = r'^{local}@{host}$'.format(
         local=email_local_part,
         host=email_host,
     )

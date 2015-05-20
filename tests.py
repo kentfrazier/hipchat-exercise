@@ -10,9 +10,10 @@ class MessageTestCase(TestCase):
     Base class for all message test cases.
     """
 
-    def assertMessageEqual(self, message_text, expected):
+    def assertMessageEqual(self, message_text, expected,
+                           retrieve_url_titles=True):
         """Parse message string and compare to expected result."""
-        parsed = message.parse(message_text)
+        parsed = message.parse(message_text, retrieve_url_titles)
         self.assertMessageDictsEqual(parsed, expected)
 
     def assertMessageDictsEqual(self, obj1, obj2):
@@ -179,3 +180,114 @@ class EmoticonsTests(MessageTestCase):
             {'emoticons': ['beaming', 'hugs']},
         )
 
+
+class URLExtractionTests(MessageTestCase):
+
+    GOOD_HOSTS = (
+        '192.168.20.1',
+        '[0123:4567:89AB:CDEF:0123:4567:89AB:CDEF]',
+        '[123:4567:AB:CDEF:3:4567:89AB:CDEF]',
+        '[0123:4567:89AB:CDEF:123:4567:192.168.0.1]',
+        '[123:4567:AB:CDEF:3:4567:192.168.0.1]',
+        '[0123:4567:89ab:cdef:0123:4567:89ab:cdef]',
+        '[::4567:89AB:CDEF:0123:4567:89AB:CDEF]',
+        '[::4567:89AB:CDEF:0123:4567:253.46.234.1]',
+        '[::89AB:CDEF:0123:4567:89AB:CDEF]',
+        '[::89AB:CDEF:0123:4567:253.46.234.1]',
+        '[::CDEF:0123:4567:89AB:CDEF]',
+        '[::CDEF:0123:4567:253.46.234.1]',
+        '[::0123:4567:89AB:CDEF]',
+        '[::0123:4567:253.46.234.1]',
+        '[::4567:89AB:CDEF]',
+        '[::4567:253.46.234.1]',
+        '[::89AB:CDEF]',
+        '[::253.46.234.1]',
+        '[::CDEF]',
+        '[::]',
+        '[1234::89AB:CDEF:0123:4567:89AB:CDEF]',
+        '[1234::89AB:CDEF:0123:4567:253.46.234.1]',
+        '[1234::CDEF:0123:4567:89AB:CDEF]',
+        '[1234::CDEF:0123:4567:253.46.234.1]',
+        '[1234::0123:4567:89AB:CDEF]',
+        '[1234::0123:4567:253.46.234.1]',
+        '[1234::4567:89AB:CDEF]',
+        '[1234::4567:253.46.234.1]',
+        '[1234::89AB:CDEF]',
+        '[1234::253.46.234.1]',
+        '[1234::CDEF]',
+        '[1234::]',
+        '[1234:5678::CDEF:0123:4567:89AB:CDEF]',
+        '[1234:5678::CDEF:0123:4567:253.46.234.1]',
+        '[1234:5678::0123:4567:89AB:CDEF]',
+        '[1234:5678::0123:4567:253.46.234.1]',
+        '[1234:5678::4567:89AB:CDEF]',
+        '[1234:5678::4567:253.46.234.1]',
+        '[1234:5678::89AB:CDEF]',
+        '[1234:5678::253.46.234.1]',
+        '[1234:5678::CDEF]',
+        '[1234:5678::]',
+        '[1234:5678:90AB::0123:4567:89AB:CDEF]',
+        '[1234:5678:90AB::0123:4567:253.46.234.1]',
+        '[1234:5678:90AB::4567:89AB:CDEF]',
+        '[1234:5678:90AB::4567:253.46.234.1]',
+        '[1234:5678:90AB::89AB:CDEF]',
+        '[1234:5678:90AB::253.46.234.1]',
+        '[1234:5678:90AB::CDEF]',
+        '[1234:5678:90AB::]',
+        '[1234:5678:90AB:CDEF::4567:89AB:CDEF]',
+        '[1234:5678:90AB:CDEF::4567:253.46.234.1]',
+        '[1234:5678:90AB:CDEF::89AB:CDEF]',
+        '[1234:5678:90AB:CDEF::253.46.234.1]',
+        '[1234:5678:90AB:CDEF::CDEF]',
+        '[1234:5678:90AB:CDEF::]',
+        '[1234:5678:90AB:CDEF:FEDC::89AB:CDEF]',
+        '[1234:5678:90AB:CDEF:FEDC::253.46.234.1]',
+        '[1234:5678:90AB:CDEF:FEDC::CDEF]',
+        '[1234:5678:90AB:CDEF:FEDC::]',
+        '[1234:5678:90AB:CDEF:FEDC:BA09::CDEF]',
+        '[1234:5678:90AB:CDEF:FEDC:BA09::]',
+        '[1234:5678:90AB:CDEF:FEDC:BA09:8765::]',
+        'www.example.com',
+        'example.com',
+        'new-top-level.domain',
+        'internationalized-punycode-domain.xn--11b5bs3a9aj6g',
+        'www.' + 'a' * 63 + '.com',
+    )
+    BAD_HOSTS = (
+        '::', # IPv6 without brackets
+        '255.255.255.256', # IPv4 octet out of range
+        '255.255.255.265', # IPv4 octet out of range
+        '255.255.255.355', # IPv4 octet out of range
+        '[0123:4567:89AB:CDEF:0123:4567:89AB:CDEG]', # IPv6 piece out of range
+        '[0123:4567:89AB:CDEF:0123:4567:255.255.255.256]', # IPv6 bad ls32
+        '[0123:4567:89AB:CDEF:0123:4567:89AB:CDEFE]', # IPv6 malformed piece
+        '[0123:4567:89AB:CDEF:0123:4567:89AB]', # IPv6 not enough pieces
+        '[0123:4567:89AB:CDEF:0123:4567:89AB:CDEF:0123]', # IPv6 too many
+        '[0123:4567:89AB:CDEF:0123:4567:89AB::CDEF]', # IPv6 elision with too many
+        '[0123::89AB:CDEF:0123::89AB:CDEG]', # IPv6 more than one elision
+        'com', # top-level domain with no subdomain
+        'www.' + 'a' * 64 + '.com', # DNS label with too many characters
+        'www.-leading-dash.com', # leading dash in DNS label
+        'www.trailing-dash-.com', # trailing dash in DNS label
+        'www.1leading-number.com', # leading number in DNS label
+    )
+    GOOD_SCHEMES = (
+        'http',
+        'https',
+    )
+
+    def test_bare_host_patterns(self):
+        for host in self.GOOD_HOSTS:
+            self.assertMessageEqual(
+                host,
+                {'links': [{'url': host}]},
+                retrieve_url_titles=False,
+            )
+
+    def test_no_match_bad_bare_hosts(self):
+        for host in self.BAD_HOSTS:
+            self.assertMessageEqual(
+                host,
+                {},
+                retrieve_url_titles=False,
+            )
