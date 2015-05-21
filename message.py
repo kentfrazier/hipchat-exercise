@@ -1,3 +1,6 @@
+from HTMLParser import HTMLParser
+from urlparse import urlsplit
+from urllib2 import urlopen, URLError
 import re
 
 
@@ -223,12 +226,66 @@ def extract_urls(message_text):
     return filter(None, map(clean, unfiltered))
 
 
-def parse(message_text, retrieve_url_titles=True):
+class TitleExtractor(HTMLParser):
+
+    def __init__(self):
+        HTMLParser.__init__(self) # grumble grumble old-style class
+        self.title = ''
+        self.in_title_tag = False
+
+    def handle_starttag(self, tag, attrs):
+        if not self.title and tag.lower() == 'title':
+            self.in_title_tag = True
+
+    def handle_endtag(self, tag):
+        if tag.lower() == 'title':
+            self.in_title_tag = False
+
+    def handle_data(self, data):
+        if self.in_title_tag:
+            self.title += data
+
+
+def parse(message_text, retrieve_url_titles=True, url_timeout=0.2):
 
     def get_title(url):
-        return (url, '')
+        """
+        Retrieve resource at URL and extract title from HTML if present.
+
+        Since this is non-critical functionality and not every URL will be
+        valid or point at an HTML document, the function will return a blank
+        title if it is unable to find one.
+        """
+        if urlsplit(url).scheme:
+            schematized_url = url
+        else:
+            schematized_url = 'http://' + url
+
+        try:
+            response = urlopen(schematized_url, timeout=url_timeout)
+            response_data = response.read()
+        except:
+            return (url, '')
+
+        try:
+            encoding = response.headers.getparam('charset')
+            if encoding:
+                response_data = response_data.decode(encoding)
+        except:
+            pass # shouldn't be an issue if we can't get encoding
+
+        parser = TitleExtractor()
+
+        try:
+            parser.feed(response_data)
+        except:
+            return (url, '')
+
+        return (url, parser.title)
 
     def with_titles(urls):
+        # TODO: parallelize calls to get_title using threading or
+        # multiprocessing
         return [
             {'url': url, 'title': title}
             for url, title in filter(None, map(get_title, urls))
