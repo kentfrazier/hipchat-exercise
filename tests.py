@@ -1,5 +1,6 @@
 from collections import deque, Mapping
 from itertools import product
+import json
 import random
 import unittest
 import urllib2
@@ -486,6 +487,27 @@ class URLTitleLiveTests(MessageTestCase):
         self.assertMessageEqual(
             url,
             {'links': [{'url': url, 'title': ''}]},
+        )
+
+
+class JSONTests(MessageTestCase):
+
+    def test_creates_valid_json(self):
+        text = 'Hello (success) @steve @bob, go to http://www.example.com!'
+        json_response = message.parse_to_json(text)
+        dict_response = json.loads(json_response)
+        self.assertMessageDictsEqual(
+            dict_response,
+            {
+                'mentions': ['steve', 'bob'],
+                'emoticons': ['success'],
+                'links': [
+                    {
+                        'url': 'http://www.example.com',
+                        'title': 'Example Domain',
+                    },
+                ],
+            },
         )
 
 

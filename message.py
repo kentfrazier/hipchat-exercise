@@ -1,4 +1,5 @@
 from HTMLParser import HTMLParser
+import json
 from urlparse import urlsplit
 from urllib2 import urlopen, URLError
 import re
@@ -307,3 +308,7 @@ def parse(message_text, retrieve_url_titles=True, url_timeout=0.2):
     }
     return parsed
 
+
+def parse_to_json(message_text, retrieve_url_titles=True, url_timeout=0.2):
+    result = parse(message_text, retrieve_url_titles, url_timeout)
+    return json.dumps(result)
