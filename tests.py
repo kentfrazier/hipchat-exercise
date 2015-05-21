@@ -1,10 +1,12 @@
 from collections import Mapping
-from unittest import TestCase
+from itertools import product
+import random
+import unittest
 
 import message
 
 
-class MessageTestCase(TestCase):
+class MessageTestCase(unittest.TestCase):
 
     """
     Base class for all message test cases.
@@ -280,11 +282,13 @@ class URLExtractionTests(MessageTestCase):
     GOOD_USER_INFO = (
         'foo',
         'foo:',
-        'foo:bar',
-        'foo:b:ar',
-        'foo:b%20ar',
-        'foo:%af%AF',
-        '%af%AFfoo:bar',
+        'foo:b%20:%af%AFar',
+        '%af%20%AFfoo:bar',
+    )
+    GOOD_PORTS = (
+        '',
+        '80',
+        '4096',
     )
     GOOD_PATHS = (
         '',
@@ -294,57 +298,87 @@ class URLExtractionTests(MessageTestCase):
         'with/(some+parentheses)/yo',
         'with/(ending+parenthesis)',
     )
+    GOOD_QUERIES = (
+        'foo=bar',
+        'foo=bar/with/slash&baz=',
+    )
+    GOOD_FRAGMENTS = (
+        '',
+        'question%20mark?/and/slash&ampersand#hashbrown',
+    )
 
-    def test_bare_host_patterns(self):
-        for host in self.GOOD_HOSTS:
+    @classmethod
+    def generate_url_parts(cls, options, template, allow_missing=True):
+        if allow_missing:
+            yield ''
+        for option in options:
+            yield template.format(option)
+
+    @classmethod
+    def generate_urls(cls, hosts):
+        scheme = cls.generate_url_parts(cls.GOOD_SCHEMES, '{0}://')
+        userinfo = cls.generate_url_parts(cls.GOOD_USER_INFO, '{0}@')
+        path = cls.generate_url_parts(cls.GOOD_PATHS, '/{0}')
+        query = cls.generate_url_parts(cls.GOOD_QUERIES, '?{0}')
+        fragment = cls.generate_url_parts(cls.GOOD_FRAGMENTS, '#{0}')
+        for parts in product(scheme, userinfo, hosts, path, query, fragment):
+            url = ''.join(parts)
+            if not message.is_likely_email(url):
+                yield url
+
+    def test_good_hosts_match(self):
+        for url in self.generate_urls(self.GOOD_HOSTS):
             self.assertMessageEqual(
-                host,
-                {'links': [{'url': host}]},
+                url,
+                {'links': [{'url': url}]},
                 retrieve_url_titles=False,
             )
 
-    def test_no_match_bad_bare_hosts(self):
-        for host in self.BAD_HOSTS:
+    def test_bad_hosts_do_not_match(self):
+        for url in self.generate_urls(self.BAD_HOSTS):
             self.assertMessageEqual(
-                host,
+                url,
                 {},
                 retrieve_url_titles=False,
             )
 
-    def test_host_with_scheme(self):
-        for host in self.GOOD_HOSTS:
-            for scheme in self.GOOD_SCHEMES:
-                url = '{0}://{1}'.format(scheme, host)
+    def test_urls_with_trailing_sentence_punctuation(self):
+        for punctuation in '.!?,;':
+            for url in self.generate_urls(self.GOOD_HOSTS):
+                text = 'Check out: {url}{punctuation} It is good.'.format(
+                    url=url,
+                    punctuation=punctuation,
+                )
                 self.assertMessageEqual(
-                    url,
+                    text,
                     {'links': [{'url': url}]},
                     retrieve_url_titles=False,
                 )
 
-    def test_no_match_bad_host_with_scheme(self):
-        for host in self.BAD_HOSTS:
-            for scheme in self.GOOD_SCHEMES:
-                url = '{0}://{1}'.format(scheme, host)
+    def test_urls_enclosed_in_brackets(self):
+        for template in ('({0})', '{{{0}}}', '<{0}>', '[{0}]', '(({0}))'):
+            for url in self.generate_urls(self.GOOD_HOSTS):
+                text = 'Cool site {0} Check it out.'.format(
+                    template.format(url)
+                )
                 self.assertMessageEqual(
-                    url,
-                    {},
+                    text,
+                    {'links': [{'url': url}]},
                     retrieve_url_titles=False,
                 )
 
-    def test_with_user_info_present(self):
-        for user_info in self.GOOD_USER_INFO:
-            url = 'http://{0}@example.com'.format(user_info)
-            self.assertMessageEqual(
-                url,
-                {'links': [{'url': url}]},
-                retrieve_url_titles=False,
-            )
+    def test_multiple_urls_in_one_message(self):
+        urls = random.sample(list(self.generate_urls(self.GOOD_HOSTS)), 5)
+        text = 'have you checked [{0}], ({1}), <{2}>, {{{3}}} or {4}?'.format(
+            *urls
+        )
+        self.assertMessageEqual(
+            text,
+            {'links': [{'url': url} for url in urls]},
+            retrieve_url_titles=False,
+        )
 
-    def test_with_path_present(self):
-        for path in self.GOOD_PATHS:
-            url = 'http://example.com/{0}'.format(path)
-            self.assertMessageEqual(
-                url,
-                {'links': [{'url': url}]},
-                retrieve_url_titles=False,
-            )
+
+if __name__ == '__main__':
+    unittest.main()
+

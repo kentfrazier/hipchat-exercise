@@ -133,7 +133,10 @@ def _build_url_and_email_patterns():
 
     email_regex = re.compile(email_pattern, re.VERBOSE)
 
-    return url_regex, email_regex
+    # -- IPv6 HOST --
+    ipv6_host_regex = re.compile(r'^\[{0}\]'.format(ipv6), re.VERBOSE)
+
+    return url_regex, email_regex, ipv6_host_regex
 
 
 # Mentions are assumed to be an at symbol (@) followed by any number of
@@ -168,15 +171,53 @@ EMOTICON_REGEX = re.compile(r'\(([A-Za-z0-9]{1,15})\)')
 # smart about things like trailing punctuation, while assuming that
 # whitespace and some types of characters, while actually valid in URLs, are
 # encoded if present.
-URL_REGEX, EMAIL_REGEX = _build_url_and_email_patterns()
+URL_REGEX, EMAIL_REGEX, IPV6_HOST_REGEX = _build_url_and_email_patterns()
+
+
+_ENDING_PUNCTUATION_REGEX = re.compile(r'[\.!\?,;]$')
+_LEADING_BRACKET_REGEX = re.compile(r'^[\(\[\{]')
+_ENDING_BRACKET_REGEX = re.compile(r'[\)\]\}]$')
+_OPEN_BRACKET_MAP = {
+    '[': ']',
+    '(': ')',
+    '{': '}',
+    '<': '>',
+}
+_CLOSE_BRACKET_MAP = {v: k for k, v in _OPEN_BRACKET_MAP.iteritems()}
+
+
+def is_likely_email(url):
+    return EMAIL_REGEX.match(url) is not None
 
 
 def extract_urls(message_text):
 
+    def scrub_brackets(url):
+        while (
+            _LEADING_BRACKET_REGEX.match(url)
+            and
+            not IPV6_HOST_REGEX.match(url)
+        ):
+            url = url[1:]
+        if not _ENDING_BRACKET_REGEX.search(url):
+            return url
+        expected_stack = []
+        for c in reversed(url):
+            if expected_stack and expected_stack[-1] == c:
+                expected_stack.pop()
+            else:
+                open_bracket = _CLOSE_BRACKET_MAP.get(c)
+                if open_bracket is not None:
+                    expected_stack.append(open_bracket)
+        return url[:len(url) - len(expected_stack)]
+
     def clean(url):
-        if EMAIL_REGEX.match(url):
+        cleaned = scrub_brackets(
+            _ENDING_PUNCTUATION_REGEX.sub('', url)
+        )
+        if is_likely_email(cleaned):
             return None
-        return url
+        return cleaned
 
     unfiltered = URL_REGEX.findall(message_text)
     return filter(None, map(clean, unfiltered))
@@ -208,3 +249,4 @@ def parse(message_text, retrieve_url_titles=True):
         if value
     }
     return parsed
+
