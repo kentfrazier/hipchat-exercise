@@ -9,7 +9,7 @@ give you a nested Python structure of dictionaries and lists. `parse_to_json`
 is a convenience wrapper that will dump the result of calling `parse` to a
 JSON string.
 
-This module does not have any external dependencies beyond the Python 2.7 and
+This module does not have any external dependencies beyond Python 2.7 and
 the Python standard library.
 
 ## Testing

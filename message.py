@@ -293,7 +293,7 @@ class TitleExtractor(HTMLParser):
             self.title += data
 
 
-def parse(message_text, retrieve_url_titles=True, url_timeout=0.2):
+def parse(message_text, retrieve_url_titles=True, url_timeout=0.5):
     """
     Parse message and extract mentions, emoticons and links.
 
@@ -380,7 +380,7 @@ def parse(message_text, retrieve_url_titles=True, url_timeout=0.2):
     return parsed
 
 
-def parse_to_json(message_text, retrieve_url_titles=True, url_timeout=0.2):
+def parse_to_json(message_text, retrieve_url_titles=True, url_timeout=0.5):
     """
     Parse message and return extracted values as a JSON string.
     """
