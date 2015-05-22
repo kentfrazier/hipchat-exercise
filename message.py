@@ -9,9 +9,16 @@ def _build_url_and_email_patterns():
     """
     Encapsulate the ugly details of building the URL regex.
 
-    The patterns here come from the URI specification, located at:
+    We are doing all this in a utility function to avoid polluting the module
+    namespace with all the intermediate variables that are needed to create
+    the very complicated final regular expressions. Everything is built in
+    intermediate steps to increase the clarity and make it easier to modify
+    and debug the various components of these regular expressions in the future.
+
+    Most of the patterns and terminology here come from the URI specification:
         https://tools.ietf.org/html/rfc3986
     """
+
     # encoding lists from https://url.spec.whatwg.org/#percent-encoded-bytes
     simple_whitelist = {chr(code) for code in xrange(0x20, 0x7f)}
     default_whitelist = simple_whitelist - {' ', '"', '#', '<', '>', '?', '`'}
@@ -33,6 +40,7 @@ def _build_url_and_email_patterns():
         )
     }
 
+    # Only supporting http and https URLs for now (if a schema is provided).
     scheme = r'https?'
 
     user_information = r'{username}*(?::{password}*)?'.format(**url_chars)
@@ -99,7 +107,9 @@ def _build_url_and_email_patterns():
     query = r'{query}*'.format(**url_chars)
     fragment = r'{fragment}*'.format(**url_chars)
 
-
+    # The authority is the only portion of the pattern that is mandatory. It
+    # is assumed that relative URLs wouldn't make much sense for this
+    # application, so a host is required.
     url_pattern = r'''
     (?:{scheme}://)?
     (?:{authority})
@@ -155,7 +165,9 @@ MENTION_REGEX = re.compile(r'(?:^|\s)@(\w+)')
 # by a pair of parentheses. Any non-alphanumeric characters in the parentheses,
 # or a sequence of more than 15 characters should not be considered an emoticon
 # match.
+# TODO: prevent emoticon matches within URLs
 EMOTICON_REGEX = re.compile(r'\(([A-Za-z0-9]{1,15})\)')
+
 
 # This pattern will only match well-formed HTTP and HTTPS URLs. Since
 # the exercise is defined to need to retrieve the title from the URL, it
@@ -164,17 +176,17 @@ EMOTICON_REGEX = re.compile(r'\(([A-Za-z0-9]{1,15})\)')
 # correctly since the spec is very permissive and allows things like
 # whitespace and parentheses, and people may do things like leaving off the
 # schema or following the URL with punctuation that could or could not
-# legally be a part of the URL. A robust system would need to handle the
+# legally be a part of the URL. A robust system will need to handle the
 # huge number of new top-level domains, as well as internationalized
 # domain names which might be in Unicode or in Punycode ASCII transcriptions.
 #
 # In a real system, I would try to find a library which has already
 # adequately solved the problem and use it, but for the conceit of the
 # interview, I will provide a solution that works for most simpler cases and
-# doesn't concern itself with internationalized domains. I will try to be
-# smart about things like trailing punctuation, while assuming that
-# whitespace and some types of characters, while actually valid in URLs, are
-# encoded if present.
+# doesn't concern itself with internationalized domains (unless they have
+# already been converted to Punycode). I will try to be smart about things like
+# trailing punctuation, while assuming that whitespace and some types of
+# characters, while actually valid in URLs, are encoded if present.
 URL_REGEX, EMAIL_REGEX, IPV6_HOST_REGEX = _build_url_and_email_patterns()
 
 
@@ -191,20 +203,39 @@ _CLOSE_BRACKET_MAP = {v: k for k, v in _OPEN_BRACKET_MAP.iteritems()}
 
 
 def is_likely_email(url):
+    """
+    Return whether the url passed in is likely to be an email address.
+    """
     return EMAIL_REGEX.match(url) is not None
 
 
 def extract_urls(message_text):
+    """
+    Extract and clean up URLs from the message text.
+    """
 
     def scrub_brackets(url):
+        """
+        Intelligently remove leading and trailing brackets that are unlikely to
+        be part of the actual URL, while leaving brackets that are inside the
+        URL or are paired with an opening brace earlier in the URL.
+        """
+        # Strip any leading brackets unless it is an IPv6 host, which must be
+        # surrounded by a single pair of square brackets.
         while (
             _LEADING_BRACKET_REGEX.match(url)
             and
             not IPV6_HOST_REGEX.match(url)
         ):
             url = url[1:]
+
+        # if there are no trailing brackets, we are done
         if not _ENDING_BRACKET_REGEX.search(url):
             return url
+
+        # otherwise, we need to figure out whether the trailing brackets are
+        # matched with an open bracket of the correct type from earlier in
+        # the URL
         expected_stack = []
         for c in reversed(url):
             if expected_stack and expected_stack[-1] == c:
@@ -216,6 +247,17 @@ def extract_urls(message_text):
         return url[:len(url) - len(expected_stack)]
 
     def clean(url):
+        """
+        Clean up a URL.
+
+        Args:
+            url [str]: the unsanitized URL
+
+        Returns:
+            a sanitized URL, scrubbed of extraneous surrounding characters,
+            or None if the URL should be suppressed because it doesn't appear
+            to actually be one.
+        """
         cleaned = scrub_brackets(
             _ENDING_PUNCTUATION_REGEX.sub('', url)
         )
@@ -228,6 +270,10 @@ def extract_urls(message_text):
 
 
 class TitleExtractor(HTMLParser):
+
+    """
+    Parser to find and extract HTML titles from documents
+    """
 
     def __init__(self):
         HTMLParser.__init__(self) # grumble grumble old-style class
@@ -248,6 +294,23 @@ class TitleExtractor(HTMLParser):
 
 
 def parse(message_text, retrieve_url_titles=True, url_timeout=0.2):
+    """
+    Parse message and extract mentions, emoticons and links.
+
+    Args:
+        message_text [str]: A string of text to be parsed
+        retrieve_url_titles [bool]: whether or not to try to retrieve titles
+            for detected links
+        url_timeout [float]: timeout in seconds when trying to retrieve links
+
+    Returns:
+        a dict with up to three keys, depending on what is present in the
+        message:
+            mentions -> list of mentions (e.g. @steve yields 'steve')
+            emoticons -> list of detected emoticons (e.g. (happy) yields 'happy')
+            links -> a list of dicts, each of which contain the key 'url',
+                and may contain 'title' as well if retrieve_url_titles is True
+    """
 
     def get_title(url):
         """
@@ -256,7 +319,18 @@ def parse(message_text, retrieve_url_titles=True, url_timeout=0.2):
         Since this is non-critical functionality and not every URL will be
         valid or point at an HTML document, the function will return a blank
         title if it is unable to find one.
+
+        Args:
+            url [str]: the url to retrieve
+
+        Returns:
+            a 2-tuple where the first element is the input URL,
+            and the second is the retrieved title, or an empty string if
+            we were unable to retrieve it. Alternately, this function can
+            return None to signify that the URL should be removed from the
+            list.
         """
+        # If no schema was provided in the URL, we'll assume it is http
         if urlsplit(url).scheme:
             schematized_url = url
         else:
@@ -284,19 +358,16 @@ def parse(message_text, retrieve_url_titles=True, url_timeout=0.2):
 
         return (url, parser.title)
 
-    def with_titles(urls):
-        # TODO: parallelize calls to get_title using threading or
-        # multiprocessing
-        return [
-            {'url': url, 'title': title}
-            for url, title in filter(None, map(get_title, urls))
-        ]
-
     mentions = MENTION_REGEX.findall(message_text)
     emoticons = EMOTICON_REGEX.findall(message_text)
     urls = extract_urls(message_text)
     if retrieve_url_titles:
-        links = with_titles(urls)
+        # TODO: parallelize calls to get_title using threading or
+        # multiprocessing
+        links = [
+            {'url': url, 'title': title}
+            for url, title in filter(None, map(get_title, urls))
+        ]
     else:
         links = [{'url': url} for url in urls]
     parsed = {
@@ -310,5 +381,8 @@ def parse(message_text, retrieve_url_titles=True, url_timeout=0.2):
 
 
 def parse_to_json(message_text, retrieve_url_titles=True, url_timeout=0.2):
+    """
+    Parse message and return extracted values as a JSON string.
+    """
     result = parse(message_text, retrieve_url_titles, url_timeout)
     return json.dumps(result)

@@ -14,6 +14,10 @@ import message
 
 class MockHTTPHandler(urllib2.HTTPHandler):
 
+    """
+    Mock the calls to go retrieve documents from the internet.
+    """
+
     handler_order = 1
 
     def __init__(self, *args, **kwargs):
@@ -22,9 +26,15 @@ class MockHTTPHandler(urllib2.HTTPHandler):
         self.response_queue = deque()
 
     def enqueue(self, response_text):
+        """
+        Enqueue text that will be returned as the body of the next response.
+        """
         self.response_queue.append(response_text)
 
     def enqueue_title(self, title):
+        """
+        Embed title in an HTML document and enqueue it as the next response.
+        """
         body = '<html><head><title>{0}</title></head></html>'.format(title)
         self.enqueue(body)
 
@@ -50,17 +60,21 @@ class MessageTestCase(unittest.TestCase):
 
     def assertMessageEqual(self, message_text, expected,
                            retrieve_url_titles=True):
-        """Parse message string and compare to expected result."""
+        """
+        Parse message string and compare to expected result.
+        """
         parsed = message.parse(message_text, retrieve_url_titles)
         self.assertMessageDictsEqual(parsed, expected)
 
     def assertMessageDictsEqual(self, obj1, obj2):
-        """Compare two parsed messages for equality and conformance."""
+        """
+        Compare two parsed messages for equality and conformance.
+        """
         for obj in (obj1, obj2):
             self.assertIsInstance(obj1, Mapping)
             self.assertTrue(
                 set(obj.keys()) <= {'mentions', 'emoticons', 'links'},
-                'extraneous keys in message dict'
+                'extraneous keys in message dict',
             )
         for key in ('mentions', 'emoticons'):
             self.assertItemsEqual(obj1.get(key, []), obj2.get(key, []))
