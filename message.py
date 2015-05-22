@@ -1,7 +1,14 @@
+"""
+Tools for parsing chat messages and extracting relevant information.
+
+`parse` and `parse_to_json` are the main functions you might want to import.
+See their docstrings for more information.
+"""
+
 from HTMLParser import HTMLParser
 import json
 from urlparse import urlsplit
-from urllib2 import urlopen, URLError
+from urllib2 import urlopen
 import re
 
 
